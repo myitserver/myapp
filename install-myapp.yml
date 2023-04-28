@@ -1,46 +1,92 @@
 ---
-- name: Create directory and install npm package
-  hosts: all
-  become: yes
-
+- hosts: all
+  become: true
+  vars:
+    app_name: "myapp"
+    app_path: "/opt/{{ app_name }}"
+    node_version: "14.x"
+    npm_packages:
+      - express
+      - socket.io  
   tasks:
-    - name: Install Node.js 12 and NPM
+    - name: Update Node.js and npm
       apt:
-        name:
-          - curl
-          - gnupg
-        environment:
-          DEBIAN_FRONTEND: noninteractive
-
-    - name: Add Node.js 12.x repository
-      become: yes
-      apt_repository:
-        repo: deb https://deb.nodesource.com/node_12.x {{ ansible_distribution_release }} main
-        state: present
-        filename: nodesource.list
         update_cache: yes
-        validate_certs: yes
-        keyserver: keyserver.ubuntu.com
-        key_id: "1655A0AB68576280"
-        key_url: https://deb.nodesource.com/gpgkey/nodesource.gpg.key
 
-    - name: Install Node.js and NPM
-      become: yes
+    # Install Node.js and NPM
+    - name: Install curl
       apt:
-        name:
-          - nodejs
+        name: curl
+        state: present
+        update_cache: yes
+      become: yes
 
-    - name: Create directory
-      file:
-        path: /home/ubuntu/myapp
-        state: directory
+    - name: Install dirmngr, apt-transport-https, lsb-release, and ca-certificates
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - dirmngr
+        - apt-transport-https
+        - lsb-release
+        - ca-certificates
+      become: yes
 
-    - name: Create package.json file
-      command: npm init -y
-      args:
-        chdir: /home/ubuntu/myapp
+    - name: Add Node.js repository
+      shell: curl -sL https://deb.nodesource.com/setup_{{ node_version }} | bash -
+      become: yes
+      ignore_errors: yes
 
-    - name: Install socket.io
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      become: yes
+      ignore_errors: yes
+
+    - name: Install npm
+      apt:
+        name: npm
+        state: present
+        update_cache: yes
+      become: yes
+
+    # Clone the Git repository
+    - name: Clone the Git repository
+      git:
+        repo: "https://github.com/myitserver/myapp.git"
+        dest: "{{ app_path }}"
+        clone: yes
+
+    # Install application dependencies
+    #    - name: Install application dependencies
+    #  npm:
+    #    name: "{{ ['express', 'socket'] }}"
+    #    path: /opt/myapp  
+    #    state: present  
+
+
+    - name: Install PM2
       npm:
-        name: socket.io
-        path: /home/ubuntu/myapp
+        name: pm2
+        global: yes
+
+    # Set up the application environment
+    - name: Set up the application environment
+      copy:
+        dest: "{{ app_path }}/.env"
+        content: |
+          NODE_ENV=production
+          PORT=3000
+
+    # Start the application using PM2
+    - name: Start the application using PM2
+      become: yes
+      command: pm2 start server.js --name myapp --ignore-watch "node_modules"
+      args:
+        chdir: /opt/myapp
+          # npm:
+          # path: "{{ app_path }}"
+          # args: "start server.js --name={{ app_name }} --watch"
